@@ -1,0 +1,103 @@
+#!/usr/bin/perl
+# (c) Pali 2019, Perl license
+#
+# Usage: elinks-dump charset width < file.html
+#
+# Simple script which calls elinks -dump in mode without disk access,
+# without network connection and with support for more character sets
+# supported either by Perl's Encode module or by system iconv library.
+
+BEGIN {
+	eval { require Encode };
+	eval { require HTML::TreeBuilder };
+	eval { require IPC::Open2 };
+}
+
+my %elinks_charsets = map { $_ => 1 } qw(
+ansi_x3.4-1968 ansi_x3.4-1986 arabic ascii asmo-708 cp10029 cp1125 cp1250 cp1251
+cp1256 cp1257 cp367 cp437 cp646 cp737 cp819 cp850 cp852 cp866 csascii csibm866
+csisolatinarabic csisolatincyrillic csisolatingreek csisolatinhebrew csisolatin1
+csisolatin2 csisolatin3 csisolatin4 csisolatin5 csisolatin6 cskoi8r csmacintosh
+cspcp852 cspc8codepage437 cspc850multilingual csviscii cyrillic ecma-114
+ecma-118 elot-928 elot_928 greek greek8 hebrew ibm367 ibm437 ibm819 ibm850
+ibm866 il0 il1 il10 il2 il4 il7 il9 iso-ir-100 iso-ir-101 iso-ir-109 iso-ir-110
+iso-ir-126 iso-ir-127 iso-ir-138 iso-ir-144 iso-ir-148 iso-ir-157 iso-ir-179
+iso-ir-199 iso-ir-203 iso-ir-226 iso-ir-6 iso_646.irv:1991 iso646-us
+iso646.1991-irv iso8859-1 iso8859_1 iso-8859-1 iso_8859-1 iso8859-10 iso-8859-10
+iso_8859-10:1992 iso_8859-1:1987 iso8859-13 iso-8859-13 iso_8859-13 iso-8859-14
+iso_8859-14 iso_8859-14:1998 iso8859-15 iso-8859-15 iso_8859-15 iso_8859-15:1998
+iso8859-16 iso-8859-16 iso_8859-16 iso_8859-16:2000 iso_8859-16:2001 iso8859-2
+iso8859_2 iso-8859-2 iso_8859-2 iso_8859-2:1987 iso8859-3 iso8859_3 iso-8859-3
+iso_8859-3 iso_8859-3:1988 iso8859-4 iso8859_4 iso-8859-4 iso_8859-4
+iso_8859-4:1988 iso8859-5 iso8859_5 iso-8859-5 iso_8859-5 iso_8859-5:1988
+iso8859-6 iso8859_6 iso-8859-6 iso_8859-6 iso_8859-6:1987 iso8859-7 iso8859_7
+iso-8859-7 iso_8859-7:1987 iso8859-8 iso8859_8 iso-8859-8 iso_8859-8:1988
+iso8859-9 iso8859_9 iso-8859-9 iso_8859-9:1989 kam koi8-r koi8-ru koi8-u latin0
+latin1 latin10 latin2 latin3 latin4 latin5 latin6 latin7 latin8 latin9 l0 l1 l10
+l2 l3 l4 l5 l6 l7 l8 l9 mac mac-ce macintosh maclatin2 macroman ms-arab ms-cyrl
+ms-ee ruscii tcvn tcvn-0 tcvn-1 tcvn5712 tcvn-5712 tcvn5712-1 tcvn5712-1:1993 us
+us-ascii utf8 utf-8 viscii viscii-1 viscii-1.1 viscii1.1-1 winbaltrim
+windows1250 windows-1250 windows1251 windows-1251 windows-1252 windows-1256
+windows1257 windows-1257 x-cp866-u x-kam-cs x-mac x-mac-ce 10029 1125 1250 1251
+1252 1256 1257 437 646 7bit 7-bit 737 819 850 852 866 867 869 8859-1 8859-10
+8859-13 8859-14 8859-15 8859-16 8859-2 8859-3 8859-4 8859-5 8859-6 8859-7 8859-8
+8859-9
+);
+
+my $input = do { local $/; <STDIN> };
+my $charset = $ARGV[0];
+my $width = $ARGV[1];
+
+$charset = undef unless defined $charset and $charset =~ /^[a-z0-9_.:\-]+$/i;
+$width = undef unless defined $width and $width =~ /^[1-9][0-9]*$/;
+
+if (not defined $charset) {
+	my $tree = eval { HTML::TreeBuilder->new_from_content($input) };
+	my $head = defined $tree ? $tree->find_by_tag_name('head') : undef;
+	if (defined $head) {
+		my $html_charset;
+		my $meta_charset = $head->look_down(_tag => 'meta', 'charset' => qr/^[a-z0-9_.:\-]+$/i);
+		if (defined $meta_charset) {
+			$html_charset = $meta_charset->attr('charset');
+		} else {
+			my $meta_content_type = $head->look_down(_tag => 'meta', 'http-equiv' => 'content-type');
+			if (defined $meta_content_type) {
+				my $content_type = $meta_content_type->attr('content');
+				($html_charset) = ($content_type =~ /charset="?([a-z0-9_.:\-]+)/i);
+			}
+		}
+		$charset = $html_charset if defined $html_charset and not exists $elinks_charsets{lc $html_charset};
+	}
+}
+
+if (defined $charset and not exists $elinks_charsets{lc $charset}) {
+	my $input_utf8 = $input;
+	if (not eval { Encode::from_to($input_utf8, $charset, 'UTF-8', Encode::FB_CROAK()) }) {
+		my ($out, $in);
+		my $pid = eval { IPC::Open2::open2($out, $in, 'iconv', '-f', $charset, '-t', 'UTF-8') };
+		if (defined $pid) {
+			do { local $SIG{PIPE} = 'IGNORE'; print $in $input };
+			close $in;
+			do { local $/; $input_utf8 = <$out> };
+			waitpid $pid, 0;
+		}
+		$input_utf8 = '' unless defined $pid and $? == 0;
+	}
+	if (length $input_utf8) {
+		$input = $input_utf8;
+		$charset = 'UTF-8';
+	}
+}
+
+my $in;
+my $pid = eval { IPC::Open2::open2('>&STDOUT', $in,
+	'elinks', '-no-home', '-anonymous', '-localhost', '-force-html', '-dump',
+	(defined $width) ? ('-dump-width', $width) : (),
+	(defined $charset) ? ('-eval', "set document.codepage.assume = '$charset'", '-eval', 'set document.codepage.force_assumed = 1') : (),
+) };
+die "Cannot execute elinks: $!\n" unless defined $pid;
+do { local $SIG{PIPE} = 'IGNORE'; print $in $input };
+close $in;
+waitpid $pid, 0;
+exit 1 if $? < 0 or $? & 0xFF;
+exit $? >> 8;
