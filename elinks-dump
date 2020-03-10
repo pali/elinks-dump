@@ -91,7 +91,7 @@ if (defined $charset and not exists $elinks_charsets{lc $charset}) {
 
 my $in;
 my $pid = eval { IPC::Open2::open2('>&STDOUT', $in,
-	'elinks', '-no-home', '-anonymous', '-localhost', '-force-html', '-dump',
+	'elinks', '-no-home', '-anonymous', '-localhost', '-force-html', '-dump', '-dump-color-mode', '1',
 	(defined $width) ? ('-dump-width', $width) : (),
 	(defined $charset) ? ('-eval', "set document.codepage.assume = '$charset'", '-eval', 'set document.codepage.force_assumed = 1') : (),
 ) };
