@@ -47,6 +47,7 @@ windows1257 windows-1257 x-cp866-u x-kam-cs x-mac x-mac-ce 10029 1125 1250 1251
 my $input = do { local $/; <STDIN> };
 my $charset = $ARGV[0];
 my $width = $ARGV[1];
+my $colors = $ARGV[2];
 
 $charset = undef unless defined $charset and $charset =~ /^[a-z0-9_.:\-]+$/i;
 $width = undef unless defined $width and $width =~ /^[1-9][0-9]*$/;
@@ -91,7 +92,8 @@ if (defined $charset and not exists $elinks_charsets{lc $charset}) {
 
 my $in;
 my $pid = eval { IPC::Open2::open2('>&STDOUT', $in,
-	'elinks', '-no-home', '-anonymous', '-localhost', '-force-html', '-dump', '-dump-color-mode', '1',
+	'elinks', '-no-home', '-anonymous', '-localhost', '-force-html', '-dump',
+	($colors) ? ('-dump-color-mode', '1', '-eval', 'set document.colors.use_document_colors = 1') : (),
 	(defined $width) ? ('-dump-width', $width) : (),
 	(defined $charset) ? ('-eval', "set document.codepage.assume = '$charset'", '-eval', 'set document.codepage.force_assumed = 1') : (),
 ) };
