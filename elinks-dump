@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 # (c) Pali 2019, Perl license
 #
-# Usage: elinks-dump charset width < file.html
+# Usage: elinks-dump charset width colors < file.html
 #
 # Simple script which calls elinks -dump in mode without disk access,
 # without network connection and with support for more character sets
