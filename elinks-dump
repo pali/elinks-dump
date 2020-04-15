@@ -102,5 +102,6 @@ die "Cannot execute elinks: $!\n" unless defined $pid;
 do { local $SIG{PIPE} = 'IGNORE'; print $in $input };
 close $in;
 waitpid $pid, 0;
+print "\033[0m" if $colors;
 exit 1 if $? < 0 or $? & 0xFF;
 exit $? >> 8;
