@@ -90,8 +90,8 @@ if (defined $charset and not exists $elinks_charsets{lc $charset}) {
 	}
 }
 
-my $in;
-my $pid = eval { IPC::Open2::open2('>&STDOUT', $in,
+my ($in, $out);
+my $pid = eval { IPC::Open2::open2($out, $in,
 	'elinks', '-no-home', '-anonymous', '-localhost', '-force-html', '-dump',
 	'-eval', 'set document.browse.margin_width = 0',
 	($colors) ? ('-dump-color-mode', '1', '-eval', 'set document.colors.use_document_colors = 1') : (),
@@ -101,7 +101,33 @@ my $pid = eval { IPC::Open2::open2('>&STDOUT', $in,
 die "Cannot execute elinks: $!\n" unless defined $pid;
 do { local $SIG{PIPE} = 'IGNORE'; print $in $input };
 close $in;
+my $output = do { local $/; <$out> };
+close $out;
 waitpid $pid, 0;
+if ($output =~ /^(.*)(\nReferences\n\n.*)$/s) {
+	my ($body, $references) = ($1, $2);
+	my @body = split /\n/, $body;
+	my $min;
+	my $color_re = '(?:\033\[[0-9]+(?:;[0-9]+)?m)';
+	my $space_re = '(?: |\xc2\xa0)';
+	foreach (@body) {
+		if ($colors) {
+			1 while $_ =~ s/^($color_re+)($space_re+)/$2$1/;
+			1 while $_ =~ s/($space_re+)($color_re+)$/$2$1/;
+		}
+		$_ =~ s/$space_re+$//;
+		if ($colors) {
+			$_ =~ s/$color_re*($color_re)/$1/g;
+			$_ = '' if $_ =~ /^$color_re$/;
+		}
+		next unless length $_;
+		my $len = () = $_ =~ /\G$space_re/g;
+		$min = $len unless defined $min and $min <= $len;
+	}
+	substr $_, 0, $min, '' foreach @body;
+	$output = join "\n", @body, $references;
+}
+print $output;
 print "\033[0m" if $colors;
 exit 1 if $? < 0 or $? & 0xFF;
 exit $? >> 8;
